@@ -21,3 +21,6 @@ docker-compose.override.yml
 /adguardhome/work
 /sabnzbd
 /homeassistant
+/traefik/logs/*
+/monitoring/grafana/data/*
+/monitoring/prometheus/data/*
