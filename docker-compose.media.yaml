@@ -1,0 +1,167 @@
+version: "3.8"
+
+services:
+  prowlarr:
+    # Index Manager
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    environment:
+      - PUID=${USER_ID}
+      - PGID=${GROUP_ID}
+      - TZ=${TIMEZONE}
+    volumes:
+      - ${CONFIG_ROOT:-.}/prowlarr:/config
+    ports:
+      - 9601:9696
+    restart: always
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://127.0.0.1:9696/prowlarr/ping", "https://google.com" ]
+      interval: 30s
+      retries: 10
+    networks:
+      - media
+      - vpn-network
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - traefik.enable=true
+      - traefik.docker.network=media
+      - traefik.http.routers.prowlarr.rule=(Host(`prowlarr.localhost`))
+  sonarr:
+    # Tv Shows
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    environment:
+      - PUID=${USER_ID}
+      - PGID=${GROUP_ID}
+      - TZ=${TIMEZONE}
+    volumes:
+      - ${CONFIG_ROOT:-.}/sonarr:/config
+      - ${MEDIA_ROOT}:/data
+    ports:
+      - 9602:8989
+    restart: always
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://127.0.0.1:8989/sonarr/ping", "https://google.com" ]
+      interval: 30s
+      retries: 10
+    networks:
+      - media
+      - vpn-network
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - traefik.enable=true
+      - traefik.docker.network=media
+      - traefik.http.routers.sonarr.rule=(Host(`sonarr.localhost`))
+  radarr:
+    # Movies
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    environment:
+      - PUID=${USER_ID}
+      - PGID=${GROUP_ID}
+      - TZ=${TIMEZONE}
+    volumes:
+      - ${CONFIG_ROOT:-.}/radarr:/config
+      - ${MEDIA_ROOT}:/data
+    ports:
+      - 9603:7878
+    restart: always
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://127.0.0.1:7878/radarr/ping", "https://google.com"]
+      interval: 30s
+      retries: 10
+    networks:
+      - media
+      - vpn-network
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - traefik.enable=true
+      - traefik.docker.network=media
+      - traefik.http.routers.radarr.rule=(Host(`radarr.localhost`))
+
+# TODO: https://trash-guides.info/Downloaders/SABnzbd/scripts/
+  sabnzbd:
+    # Usenet download client  
+    image: lscr.io/linuxserver/sabnzbd:latest
+    container_name: sabnzbd
+    environment:
+      - PUID=${USER_ID}
+      - PGID=${GROUP_ID}
+      - TZ=${TIMEZONE}
+    volumes:
+      - ${CONFIG_ROOT:-.}/sabnzbd:/config
+      - ${MEDIA_ROOT}:/data
+    ports:
+      - 9680:8080
+    restart: always
+    networks:
+      - vpn-network
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - traefik.enable=true
+      - traefik.docker.network=vpn-network
+      - traefik.http.routers.sabnzbd.rule=(Host(`sabnzbd.localhost`))
+
+  # Media Server
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin
+    container_name: jellyfin
+    environment:
+      - PUID=${USER_ID}
+      - PGID=${GROUP_ID}
+      - TZ=${TIMEZONE}
+      - JELLYFIN_PublishedServerUrl=${HOSTNAME}/jellyfin
+    volumes:
+      - /opt/vc/lib:/opt/vc/lib
+      - ${CONFIG_ROOT:-.}/jellyfin:/config
+      - ${MEDIA_ROOT}:/data
+    ports:
+      - "7359:7359/udp"
+      - "1900:1900/udp"
+      - "9616:8096"
+      - "9617:8097"
+    restart: always
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://127.0.0.1:8096/health" ]
+      interval: 30s
+      retries: 10
+    networks:
+      - media
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - traefik.enable=true
+      - traefik.docker.network=media
+      - traefik.http.routers.jellyfin.rule=(Host(`jellyfin.localhost`))
+      # With multiple exposed ports, need to tell taefik which to fwd to
+      - traefik.http.services.jellyfin.loadbalancer.server.port=9616
+  
+  # Media request manager
+  jellyseerr:
+    image: fallenbagel/jellyseerr:latest
+    container_name: jellyseerr
+    environment:
+      - LOG_LEVEL=debug
+      - TZ=${TIMEZONE}
+    volumes:
+      - ${CONFIG_ROOT:-.}/jellyseerr:/app/config
+    ports:
+      - 9655:5055
+    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "http://127.0.0.1:5055/api/v1/status", "-qO", "/dev/null"]
+      interval: 30s
+      retries: 10
+    networks:
+      - media
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - traefik.enable=true
+      - traefik.docker.network=media
+      - traefik.http.routers.jellyseerr.rule=(Host(`jellyseerr.localhost`))
+  
+networks:
+  media:
+    name: media
+  vpn-network:  
+    name: vpn-network
+    external: true

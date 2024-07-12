@@ -1,0 +1,77 @@
+version: "3.8"
+
+services:
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:libtorrentv1
+    container_name: qbittorrent
+    environment:
+      - PUID=${USER_ID}
+      - PGID=${GROUP_ID}
+      - TZ=${TIMEZONE}
+      - WEBUI_PORT=9600
+      - TORRENTING_PORT=6881
+      - DOCKER_MODS=ghcr.io/gabe565/linuxserver-mod-vuetorrent
+    volumes:
+      - ${CONFIG_ROOT:-.}/qbittorrent:/config
+      - ${TORRENT_DOWNLOAD_ROOT}:/data/torrents
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "curl ipconfig.io/country | grep 'Canada' && exit 0 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    network_mode: "service:vpn"
+    depends_on:
+      vpn:
+        condition: service_healthy
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+
+  # https://github.com/bubuntux/nordlynx
+  vpn:
+    image: ghcr.io/bubuntux/nordlynx
+    container_name: vpn
+    security_opt:
+      - no-new-privileges:true
+    cap_add:
+      - NET_ADMIN #required
+      - SYS_MODULE #maybe
+    environment:
+      # TODO: Redact before pushing.
+      - PRIVATE_KEY=${NORD_VPN_KEY} #required
+      - TZ=${TIMEZONE}
+      - NET_LOCAL=10.0.0.0/8,172.16.0.0/12,192.168.2.0/24,192.168.1.0/24,192.168.50.0/24
+      - QUERY=filters\[country_id\]=38 # 209 is Canada based on country_id in https://api.nordvpn.com/v1/servers/recommendations
+      #- NET_LOCAL=192.168.2.0/24
+      #- DNS=1.1.1.1,8.8.8.8
+      - ALLOWED_IPS=0.0.0.0/1,128.0.0.0/1,128.0.0.0/2
+      - "POST_UP=ip -4 route add $$(wg | awk -F'[: ]' '/endpoint/ {print $$5}') via $$(ip route | awk '/default/ {print $$3}')"
+      - "PRE_DOWN=ip -4 route del $$(route -n | awk '/255.255.255.255/ {print $$1}') via $$(ip route | awk '/default/ {print $$3}')"
+    healthcheck:
+      #test: country=`curl ipconfig.io/country`; if [ "$country" != "Canada" ]; then echo "country mismatch $country" && exit 1; fi
+      test: ["CMD-SHELL", "curl ipconfig.io/country | grep 'Canada' && exit 0 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    ports:
+      # https://github.com/dperson/openvpn-client/issues/210 all service ports must go through vpn
+      - 6881:6881 # qbittorrent P2P
+      - 6881:6881/udp # qbittorrent P2P
+      - 9600:9600 # qbittorrent web interface
+    restart: always
+    sysctls:
+      #- net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv6.conf.all.disable_ipv6=1     # disable ipv6; recommended if using ipv4 only
+    labels:
+      # network mode is not supported: https://github.com/containrrr/watchtower/issues/1286#issuecomment-1214291660
+      - com.centurylinklabs.watchtower.enable=false
+      - traefik.enable=true
+      - traefik.docker.network=vpn-network
+      - traefik.http.routers.qbittorrent.rule=(Host(`qbt.localhost`))
+      - traefik.http.services.qbittorrent.loadbalancer.server.port=9600
+    networks:
+      - vpn-network
+
+networks:
+  vpn-network:
+    name: vpn-network

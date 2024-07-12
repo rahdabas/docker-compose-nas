@@ -1,0 +1,59 @@
+version: "3.8"
+
+services:
+  reverse-proxy:
+    container_name: reverse-proxy
+    # The official v3 Traefik docker image
+    image: traefik:v3.0
+    restart: always
+    # Enables the web UI and tells Traefik to listen to docker
+    # https://doc.traefik.io/traefik/reference/static-configuration/cli/
+    command:
+      - --accesslog=true
+      - --accesslog.filepath=/var/output/logs/access
+      - --log=true
+      - --log.level=DEBUG
+      - --log.filepath=/var/output/logs/application
+      # in days
+      - --log.maxage=100
+      # in mbs=2gbs
+      - --log.maxsize=2048
+      - --ping=true
+      - --api.insecure=true 
+      - --api.debug=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.web-secure.address=:443
+    ports:
+      # The HTTP port
+      - "800:80"
+      - "4430:443"
+      # The Web UI (enabled by --api.insecure=true)
+      - "8080:8080"
+    volumes:
+      # So that Traefik can listen to the Docker events
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${TRAEFIK_LOGS:-.traefik/logs}:/var/output/logs
+    healthcheck:
+      test: [ "CMD", "traefik", "healthcheck", "--ping" ]
+      interval: 30s
+      retries: 10
+    networks:
+      - monitoring
+      - immich
+      - media
+
+networks:
+  monitoring:
+    name: monitoring
+    driver: bridge
+    external: true
+  immich:
+    name: immich
+    driver: bridge
+    external: true
+  media:
+    name: media
+    driver: bridge
+    external: true

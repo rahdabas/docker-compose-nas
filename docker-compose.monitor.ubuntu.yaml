@@ -1,0 +1,116 @@
+version: "3.8"
+
+name: ubuntu-monitoring
+
+services:
+  # Referred: https://github.com/oijkn/Docker-Raspberry-PI-Monitoring
+  # and: https://medium.com/@varunjain2108/monitoring-docker-containers-with-cadvisor-prometheus-and-grafana-d101b4dbbc84
+  cadvisor:
+    container_name: monitoring-cadvisor
+    image: gcr.io/cadvisor/cadvisor:v0.47.1
+    hostname: ubuntu-cadvisor
+    restart: unless-stopped
+    privileged: true
+    command:
+      - '-housekeeping_interval=15s'
+      - '-docker_only=true'
+      - '-store_container_labels=false'
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+      - /etc/machine-id:/etc/machine-id:ro
+    networks:
+      - monitoring
+    ports:
+      - "1080:8080"
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+    
+  
+  prometheus:
+    container_name: monitoring-prometheus 
+    image: prom/prometheus
+    hostname: ubuntu-prometheus
+    restart: unless-stopped
+    user: "65534"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=1y'
+      # /!\ Uncomment the following line to set a size limit for the Prometheus database /!\
+#      - '--storage.tsdb.retention.size=10GB'
+    volumes:
+      # /!\ To be modified depending on your needs /!\
+      - ${MONITOR_PROMETHEUS_DATA:-./monitoring/prometheus/data}:/prometheus
+      - ./monitoring/prometheus:/etc/prometheus/
+    networks:
+      - monitoring
+    ports:
+      - "1090:9090"
+    depends_on:
+      - cadvisor
+      - node-exporter
+    links:
+      - cadvisor:cadvisor
+      - node-exporter:node-exporter
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  node-exporter:
+    container_name: monitoring-node-exporter
+    image: prom/node-exporter:latest
+    hostname: ubuntu-exporter
+    restart: unless-stopped
+    networks:
+      - monitoring
+    ports:
+      - "1100:9100"
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/host
+      - --collector.filesystem.ignored-mount-points
+      - ^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+      - /:/host:ro,rslave
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+  
+  # https://github.com/grafana/grafana/issues/51931#issuecomment-1905627883
+  grafana:
+    container_name: monitoring-grafana
+    image: grafana/grafana
+    hostname: ubuntu-grafana
+    restart: unless-stopped
+    user: "65534"
+    networks:
+      - monitoring
+    env_file:
+      - ./monitoring/grafana/.env
+    volumes:
+      - ${MONITOR_GRAFANA_DATA:-./monitoring/grafana/data}:/var/lib/grafana
+      - ${MONITOR_GRAFANA_LOGS:-./monitoring/grafana/logs}:/var/log/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/config/custom.ini:/etc/grafana/grafana.ini
+    ports:
+      - "1000:3000"
+    depends_on:
+      - prometheus
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - traefik.enable=true
+      - traefik.docker.network=monitoring
+      - traefik.http.routers.monitoring-grafana.rule=(Host(`monitor.localhost`))
+      
+networks:
+  monitoring:
+    name: monitoring
+    driver: bridge
